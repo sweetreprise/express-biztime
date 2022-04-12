@@ -44,11 +44,31 @@ router.post('/', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { amt } = req.body;
-        const results = await db.query(`UPDATE invoices SET amt=$2 WHERE id=$1 RETURNING *`, [id, amt]);
-        if(!results.rowCount) {
+        const { amt, paid } = req.body;
+        let paidDate;
+
+        if(isNaN(id)) {
+            throw new ExpressError('ID must be a number', 404);
+        }
+
+        const invoice = await db.query(`SELECT * FROM invoices WHERE id=$1`, [id]);
+
+        if(!invoice.rowCount) {
             throw new ExpressError('Item not found.', 404);
         }
+
+        const currPaidDate = invoice.rows[0].paid_date;
+
+        if(!currPaidDate && paid) {
+            paidDate = new Date();
+        } else if (!paid) {
+            paidDate = null;
+        } else {
+            paidDate = currPaidDate;
+        }
+
+        const results = await db.query(`UPDATE invoices SET amt=$2, paid=$3, paid_date=$4 WHERE id=$1 RETURNING *`, [id, amt, paid, paidDate]);
+
         return res.send({ invoice: results.rows[0] });
     } catch(err) {
         return next(err);
@@ -59,7 +79,11 @@ router.put('/:id', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
-        db.query(`DELETE FROM invoices WHERE id=$1`, [id]);
+        const results = await db.query(`SELECT * FROM invoices WHERE id=$1`, [id]);
+        if(!results.rows[0]) {
+            throw new ExpressError('Invoice not found.', 404);
+        }
+        await db.query(`DELETE FROM invoices WHERE id=$1 RETURNING *`, [id]);
         return res.json({ status: "deleted" });
     } catch(err) {
         return next(err);
